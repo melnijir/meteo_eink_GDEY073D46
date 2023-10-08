@@ -1,0 +1,119 @@
+<!doctype html>
+
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MeteoEink image preview</title>
+  <meta name="description" content="Image preview for MeteoEink on Good Display GDEY073D46">
+  <meta name="author" content="Jiri Melnikov">
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+
+  <style>
+    body { background-color: linen; margin: 2em; color: black; }
+    #controls { margin-bottom: 1em; display: grid; grid-template-columns: 20% 80%; }
+    #status_msg { color: darkred; }
+    </style>
+</head>
+
+<body>
+    <div id="controls">
+        <button id="download_image">Download image</button>
+        <input id="image_url" type="text" value="https://services.brewrobot.org/weather/meteo_eink_rle.bin" />
+    </div>
+    <img id="image_container"/>
+    <p>Status: <span id="status_msg">push button to download image</span></p>
+    <p>Image preview for <a href="https://github.com/jakubcizek/pojdmeprogramovatelektroniku/tree/master/MeteoEinkDashboard">MeteoEink</a> (Good Display GDEY073D46) project.</p>
+    <script>
+        // Display params
+        const width = 800;
+        const height = 480;
+        // Display pallete
+        const palette = [
+            [  0,   0,   0],
+            [255, 255, 255],
+            [  0, 255,   0],
+            [  0,   0, 255],
+            [255,   0,   0],
+            [255, 255,   0],
+            [255, 128,   0]
+        ];
+
+        // Simple RLE decoder
+        function decodeRLE(encodedData) {
+            let decodedData = [];
+            for (let i = 0; i < encodedData.length; i += 2) {
+                let length = encodedData[i];
+                let value = encodedData[i + 1];
+                for (let j = 0; j < length; j++) {
+                    decodedData.push(value);
+                }
+            }
+            return decodedData;
+        }
+        // Converts packed pixels to image uri
+        function packedToImgUri(packetPixels) {
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            let imgData = ctx.createImageData(width, height);
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const index = (y * width + x) * 4;
+                    const color = packetPixels[y * width + x];
+                    if (color != undefined) {
+                        imgData.data[index + 0] = color[0];  // R
+                        imgData.data[index + 1] = color[1];  // G
+                        imgData.data[index + 2] = color[2];  // B
+                        imgData.data[index + 3] = 255;       // A (fully opaque)
+                    }
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+            return canvas.toDataURL();
+        }
+        $(document).ready(function() {
+            // Reserve space for image
+            $('#image_container').width(width);
+            $('#image_container').height(height);
+            $('#controls').width(width);
+            // Download image function
+            $('#download_image').click(function() {
+                $('#status_msg').text('downloading...');
+                $.ajax({
+                    url: $('#image_url').val(),
+                    method: 'GET',
+                    xhrFields: {
+                        responseType: 'blob'
+                    },
+                    success: function(data) {
+                        let reader = new FileReader();
+                        reader.onload = function(event) {
+                            let arrayBuffer = event.target.result;
+                            let uint8Array = new Uint8Array(arrayBuffer);
+                            const decodedData = decodeRLE(uint8Array);
+                            let packedPicture = [];
+                            for (let index = 0; index < decodedData.length; index++) {
+                                packedPicture.push(palette[(decodedData[index] & 0xf0) >> 4]);
+                                packedPicture.push(palette[(decodedData[index] & 0x0f) >> 0]);
+                            }
+                            $('#image_container').attr("src",packedToImgUri(packedPicture));
+                        };
+                        if (data instanceof Blob) {
+                            reader.readAsArrayBuffer(data);
+                            $('#status_msg').text('image downloaded');
+                        } else {
+                            $('#status_msg').text('wrong data type');
+                        }
+                    },
+                    error: function() {
+                        $('#status_msg').text('error downloading image');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>
